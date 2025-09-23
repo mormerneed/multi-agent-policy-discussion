@@ -1,0 +1,24 @@
+# MetaGPT配置文件示例
+# 请复制此文件为 config.yaml 并填入您的API密钥
+
+# LLM配置
+llm:
+  # API类型：openai, zhipuai, anthropic 等
+  api_type: "zhipuai"
+  
+  # API密钥（请填入您的真实密钥）
+  api_key: "your-api-key-here"
+  
+  # 模型名称
+  model: "glm-4"
+  
+  # API基础URL（可选）
+  # base_url: "https://api.example.com"
+
+# 日志配置
+logs:
+  level: "INFO"
+  
+# 其他配置
+max_budget: 10.0
+workspace_path: "./workspace"

@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多智能体政策讨论系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        [x-cloak] { display: none !important; }
+        .message-enter {
+            animation: slideInRight 0.5s ease-out;
+        }
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        .role-card:hover {
+            transform: translateY(-2px);
+            transition: transform 0.2s ease;
+        }
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .message-bubble {
+            max-width: calc(100% - 4rem);
+            word-wrap: break-word;
+        }
+        .score-ring {
+            transform: rotate(-90deg);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 font-sans" x-data="discussionApp()" x-init="init()">
+    <!-- 顶部导航 -->
+    <nav class="bg-white shadow-sm border-b">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-users text-blue-600 text-2xl mr-3"></i>
+                        <span class="text-xl font-bold text-gray-900">多智能体政策讨论系统</span>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <!-- 讨论状态指示 -->
+                        <div class="flex items-center text-sm text-gray-500">
+                            <div class="w-2 h-2 rounded-full mr-2"
+                                 :class="discussionStatus.is_running ? 'bg-orange-400 animate-pulse' : 'bg-green-400'"></div>
+                            <span x-text="discussionStatus.is_running ? '讨论进行中' : '等待中'"></span>
+                        </div>
+                        
+                        <!-- 启动讨论按钮 -->
+                        <button @click="showStartDialog = true" 
+                                :disabled="discussionStatus.is_running"
+                                class="px-3 py-1 text-xs rounded-md transition-colors"
+                                :class="discussionStatus.is_running ? 
+                                    'bg-gray-200 text-gray-400 cursor-not-allowed' : 
+                                    'bg-blue-500 text-white hover:bg-blue-600'">
+                            <i class="fas fa-play mr-1"></i>
+                            启动讨论
+                        </button>
+                        
+                        <!-- 停止讨论按钮 -->
+                        <button @click="stopDiscussion()" 
+                                x-show="discussionStatus.is_running"
+                                class="px-3 py-1 text-xs bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors">
+                            <i class="fas fa-stop mr-1"></i>
+                            停止
+                        </button>
+                        
+                        <!-- 清空数据按钮 -->
+                        <button @click="clearAllData()" 
+                                :disabled="discussionStatus.is_running"
+                                class="px-3 py-1 text-xs rounded-md transition-colors"
+                                :class="discussionStatus.is_running ? 
+                                    'bg-gray-200 text-gray-400 cursor-not-allowed' : 
+                                    'bg-orange-500 text-white hover:bg-orange-600'">
+                            <i class="fas fa-trash mr-1"></i>
+                            清空
+                        </button>
+                    </div>
+                    
+                    <div class="flex items-center text-sm text-gray-500">
+                        <div class="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></div>
+                        <span x-text="isConnected ? '实时连接' : '连接中断'"></span>
+                    </div>
+                    <div class="text-sm text-gray-500">
+                        <i class="far fa-clock mr-1"></i>
+                        <span x-text="lastUpdate"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <!-- 左侧：角色面板 -->
+            <div class="lg:col-span-1">
+                <div class="bg-white rounded-lg shadow-sm p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                        <i class="fas fa-user-friends text-blue-600 mr-2"></i>
+                        参与角色
+                    </h3>
+                    
+                    <!-- 角色列表 -->
+                    <div class="space-y-3">
+                        <template x-for="(role, key) in roles" :key="key">
+                            <div class="role-card p-3 rounded-lg cursor-pointer transition-all duration-200"
+                                 :style="'background-color: ' + role.bg_color"
+                                 @click="selectRole(key)"
+                                 :class="selectedRole === key ? 'ring-2 ring-blue-500' : ''">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center">
+                                        <span class="text-2xl mr-3" x-text="role.avatar"></span>
+                                        <div>
+                                            <div class="font-medium text-gray-900" x-text="role.name"></div>
+                                            <div class="text-xs text-gray-500" x-text="role.description"></div>
+                                        </div>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="text-sm font-semibold" 
+                                             :style="'color: ' + role.color"
+                                             x-text="Math.round((role.weight || 0) * 100) + '%'"></div>
+                                        <div class="text-xs text-gray-400">权重</div>
+                                    </div>
+                                </div>
+                                
+                                <!-- 角色统计 -->
+                                <div class="mt-2 pt-2 border-t border-gray-200">
+                                    <div class="flex justify-between text-xs text-gray-600">
+                                        <span x-text="(stats[key]?.message_count || 0) + ' 条发言'"></span>
+                                        <span x-show="stats[key]?.avg_score" 
+                                              x-text="'评分: ' + (stats[key]?.avg_score || 0).toFixed(1)"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- 讨论统计 -->
+                    <div class="mt-6 p-4 bg-gray-50 rounded-lg">
+                        <h4 class="font-medium text-gray-900 mb-3">讨论统计</h4>
+                        <div class="space-y-2 text-sm">
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">总发言数</span>
+                                <span class="font-medium" x-text="totalMessages"></span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">活跃角色</span>
+                                <span class="font-medium" x-text="activeRoles"></span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">讨论轮次</span>
+                                <span class="font-medium" x-text="totalRounds"></span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">平均评分</span>
+                                <span class="font-medium" x-text="averageScore.toFixed(1)"></span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 轮次筛选 -->
+                    <div class="mt-4 p-4 bg-white border rounded-lg">
+                        <h4 class="font-medium text-gray-900 mb-3">按轮次筛选</h4>
+                        <div class="flex flex-wrap gap-2">
+                            <button @click="selectedRound = null"
+                                    :class="selectedRound === null ? 
+                                        'bg-blue-500 text-white' : 
+                                        'bg-gray-100 text-gray-700 hover:bg-gray-200'"
+                                    class="px-3 py-1 rounded-full text-sm font-medium transition-colors">
+                                全部
+                            </button>
+                            <template x-for="round in getRoundNumbers()" :key="round">
+                                <button @click="selectedRound = selectedRound === round ? null : round"
+                                        :class="selectedRound === round ? 
+                                            'bg-blue-500 text-white' : 
+                                            'bg-gray-100 text-gray-700 hover:bg-gray-200'"
+                                        class="px-3 py-1 rounded-full text-sm font-medium transition-colors">
+                                    第<span x-text="round"></span>轮 
+                                    (<span x-text="getMessagesInRound(round).length"></span>)
+                                </button>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：消息面板 -->
+            <div class="lg:col-span-3">
+                <div class="bg-white rounded-lg shadow-sm h-[calc(100vh-200px)]">
+                    <!-- 消息头部 -->
+                    <div class="p-4 border-b bg-gray-50 rounded-t-lg">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-lg font-semibold text-gray-900 flex items-center">
+                                <i class="fas fa-comments text-blue-600 mr-2"></i>
+                                <span x-show="selectedRole && !selectedRound">
+                                    <span x-text="roles[selectedRole]?.name"></span> 的发言
+                                </span>
+                                <span x-show="!selectedRole && selectedRound">
+                                    第<span x-text="selectedRound"></span>轮发言
+                                </span>
+                                <span x-show="selectedRole && selectedRound">
+                                    <span x-text="roles[selectedRole]?.name"></span> - 第<span x-text="selectedRound"></span>轮
+                                </span>
+                                <span x-show="!selectedRole && !selectedRound">所有发言</span>
+                            </h3>
+                            <div class="flex items-center space-x-2">
+                                <button @click="selectedRole = null; selectedRound = null" 
+                                        x-show="selectedRole || selectedRound"
+                                        class="text-sm text-gray-500 hover:text-gray-700">
+                                    <i class="fas fa-times mr-1"></i>显示全部
+                                </button>
+                                <button @click="scrollToBottom()" 
+                                        class="text-sm text-blue-600 hover:text-blue-700">
+                                    <i class="fas fa-arrow-down mr-1"></i>最新消息
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 消息列表 -->
+                    <div id="messages-container" 
+                         class="flex-1 overflow-y-auto p-4 space-y-4" 
+                         style="height: calc(100% - 80px);">
+                        
+                        <template x-for="message in filteredMessages" :key="message.id">
+                            <div class="message-item">
+                                <!-- 消息气泡 -->
+                                <div class="flex items-start space-x-3">
+                                    <!-- 头像 -->
+                                    <div class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-lg"
+                                         :style="'background-color: ' + message.role_config.bg_color + '; color: ' + message.role_config.color">
+                                        <span x-text="message.role_config.avatar"></span>
+                                    </div>
+
+                                    <!-- 消息内容 -->
+                                    <div class="flex-1 min-w-0">
+                                        <!-- 消息头 -->
+                                        <div class="flex items-center space-x-2 mb-1">
+                                            <span class="font-medium text-gray-900" x-text="message.role_config.name"></span>
+                                            <span class="text-xs text-gray-500" x-text="message.timestamp"></span>
+                                            <!-- 轮次标识 -->
+                                            <span class="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-full"
+                                                  x-text="'第' + (message.round || 1) + '轮'"></span>
+                                            <span x-show="message.structured.score" 
+                                                  class="px-2 py-1 text-xs rounded-full"
+                                                  :class="getScoreColor(message.structured.score)"
+                                                  x-text="'评分: ' + message.structured.score + '/10'"></span>
+                                            <span x-show="message.structured.agreement"
+                                                  class="px-2 py-1 text-xs rounded-full"
+                                                  :class="getAgreementColor(message.structured.agreement)"
+                                                  x-text="message.structured.agreement"></span>
+                                        </div>
+
+                                        <!-- 消息气泡 -->
+                                        <div class="message-bubble bg-gray-50 rounded-lg p-4">
+                                            <!-- 结构化内容 -->
+                                            <div x-show="message.structured.sections.problems">
+                                                <h5 class="font-medium text-gray-900 mb-2 flex items-center">
+                                                    <i class="fas fa-exclamation-triangle text-orange-500 mr-2"></i>
+                                                    关键问题
+                                                </h5>
+                                                <ul class="space-y-1 mb-4">
+                                                    <template x-for="(problem, index) in message.structured.sections.problems" :key="index">
+                                                        <li class="text-sm text-gray-700" x-text="problem"></li>
+                                                    </template>
+                                                </ul>
+                                            </div>
+
+                                            <div x-show="message.structured.sections.suggestions">
+                                                <h5 class="font-medium text-gray-900 mb-2 flex items-center">
+                                                    <i class="fas fa-lightbulb text-yellow-500 mr-2"></i>
+                                                    建议改进
+                                                </h5>
+                                                <ul class="space-y-1 mb-4">
+                                                    <template x-for="(suggestion, index) in message.structured.sections.suggestions" :key="index">
+                                                        <li class="text-sm text-gray-700" x-text="suggestion"></li>
+                                                    </template>
+                                                </ul>
+                                            </div>
+
+                                            <div x-show="message.structured.sections.policy">
+                                                <h5 class="font-medium text-gray-900 mb-2 flex items-center">
+                                                    <i class="fas fa-file-alt text-blue-500 mr-2"></i>
+                                                    修订政策
+                                                </h5>
+                                                <div class="text-sm text-gray-700 mb-4 whitespace-pre-wrap" 
+                                                     x-text="message.structured.sections.policy"></div>
+                                            </div>
+
+                                            <div x-show="message.structured.sections.changes">
+                                                <h5 class="font-medium text-gray-900 mb-2 flex items-center">
+                                                    <i class="fas fa-edit text-green-500 mr-2"></i>
+                                                    所做修改
+                                                </h5>
+                                                <ul class="space-y-1">
+                                                    <template x-for="(change, index) in message.structured.sections.changes" :key="index">
+                                                        <li class="text-sm text-gray-700" x-text="change"></li>
+                                                    </template>
+                                                </ul>
+                                            </div>
+
+                                            <!-- 原始内容（折叠显示） -->
+                                            <div x-show="!message.structured.sections.problems && !message.structured.sections.policy">
+                                                <div class="text-sm text-gray-700 whitespace-pre-wrap" x-text="message.content"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- 空状态 -->
+                        <div x-show="filteredMessages.length === 0" 
+                             class="text-center py-12 text-gray-500">
+                            <i class="fas fa-comments text-4xl mb-4"></i>
+                            <p>暂无消息</p>
+                            <p class="text-sm">等待智能体开始讨论...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 启动讨论对话框 -->
+    <div x-show="showStartDialog" 
+         x-cloak
+         class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+         @click.self="showStartDialog = false">
+        <div class="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">启动新的政策讨论</h3>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    讨论主题
+                </label>
+                <textarea x-model="newTopic" 
+                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                         rows="3"
+                         placeholder="例如：建立分层低空空域区域与动态无人机交通管理系统，支持商业无人机运营"></textarea>
+            </div>
+            
+            <div class="mb-4">
+                <p class="text-sm text-gray-600">
+                    <i class="fas fa-info-circle text-blue-500 mr-1"></i>
+                    讨论将在后台运行，您可以在此界面实时观察各专家的发言和政策修订过程。
+                </p>
+            </div>
+            
+            <div class="flex justify-end space-x-3">
+                <button @click="showStartDialog = false" 
+                        class="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50">
+                    取消
+                </button>
+                <button @click="startDiscussion()" 
+                        :disabled="!newTopic.trim()"
+                        class="px-4 py-2 text-sm text-white rounded-md transition-colors"
+                        :class="newTopic.trim() ? 'bg-blue-500 hover:bg-blue-600' : 'bg-gray-300 cursor-not-allowed'">
+                    <i class="fas fa-play mr-1"></i>
+                    开始讨论
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 讨论进度提示 -->
+    <div x-show="discussionStatus.is_running && discussionStatus.progress" 
+         x-cloak
+         class="fixed bottom-4 right-4 bg-blue-500 text-white px-4 py-2 rounded-md shadow-lg">
+        <div class="flex items-center">
+            <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+            <span x-text="discussionStatus.progress"></span>
+        </div>
+    </div>
+
+    <script>
+        function discussionApp() {
+            return {
+                // 数据
+                messages: {{ data.messages | tojson }},
+                stats: {{ data.stats | tojson }},
+                roles: {{ roles | tojson }},
+                
+                // 状态
+                selectedRole: null,
+                selectedRound: null,
+                isConnected: false,
+                lastUpdate: '{{ data.latest_update }}',
+                eventSource: null,
+                
+                // 讨论控制
+                showStartDialog: false,
+                newTopic: '',
+                discussionStatus: {
+                    is_running: false,
+                    current_topic: '',
+                    start_time: null,
+                    progress: ''
+                },
+                
+                // 初始化
+                init() {
+                    this.connectEventSource();
+                    this.scrollToBottom();
+                    this.checkDiscussionStatus();
+                    
+                    // 每5秒检查一次讨论状态
+                    setInterval(() => {
+                        this.checkDiscussionStatus();
+                    }, 5000);
+                },
+                
+                // 计算属性
+                get filteredMessages() {
+                    let filtered = this.messages;
+                    
+                    if (this.selectedRole) {
+                        filtered = filtered.filter(msg => msg.role === this.selectedRole);
+                    }
+                    
+                    if (this.selectedRound) {
+                        filtered = filtered.filter(msg => (msg.round || 1) === this.selectedRound);
+                    }
+                    
+                    return filtered;
+                },
+                
+                get totalMessages() {
+                    return this.messages.length;
+                },
+                
+                get activeRoles() {
+                    const activeRoles = new Set(this.messages.map(msg => msg.role));
+                    return activeRoles.size;
+                },
+                
+                get averageScore() {
+                    const scores = this.messages
+                        .map(msg => msg.structured.score)
+                        .filter(score => score !== null);
+                    if (scores.length === 0) return 0;
+                    return scores.reduce((sum, score) => sum + score, 0) / scores.length;
+                },
+                
+                get totalRounds() {
+                    const rounds = this.messages.map(msg => msg.round || 1);
+                    return rounds.length > 0 ? Math.max(...rounds) : 0;
+                },
+                
+                // 方法
+                selectRole(roleKey) {
+                    this.selectedRole = this.selectedRole === roleKey ? null : roleKey;
+                },
+                
+                connectEventSource() {
+                    this.eventSource = new EventSource('/api/messages/stream');
+                    
+                    this.eventSource.onopen = () => {
+                        this.isConnected = true;
+                        console.log('EventSource连接已建立');
+                    };
+                    
+                    this.eventSource.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            
+                            if (data.type === 'init') {
+                                this.messages = data.data.messages;
+                                this.stats = data.data.stats;
+                                this.lastUpdate = data.data.latest_update;
+                            } else if (data.type === 'message') {
+                                this.messages.push(data.message);
+                                this.updateStats(data.message);
+                                this.lastUpdate = new Date().toLocaleString();
+                                this.$nextTick(() => this.scrollToBottom());
+                            }
+                        } catch (e) {
+                            console.error('解析消息失败:', e);
+                        }
+                    };
+                    
+                    this.eventSource.onerror = () => {
+                        this.isConnected = false;
+                        console.log('EventSource连接错误，5秒后重连');
+                        setTimeout(() => {
+                            if (this.eventSource.readyState === EventSource.CLOSED) {
+                                this.connectEventSource();
+                            }
+                        }, 5000);
+                    };
+                },
+                
+                updateStats(message) {
+                    const role = message.role;
+                    if (!this.stats[role]) {
+                        this.stats[role] = { message_count: 0, total_score: 0, agreements: [], avg_score: 0 };
+                    }
+                    
+                    this.stats[role].message_count++;
+                    if (message.structured.score) {
+                        this.stats[role].total_score += message.structured.score;
+                        // 重新计算平均分
+                        const scoreMessages = this.messages.filter(m => 
+                            m.role === role && m.structured.score !== null
+                        );
+                        this.stats[role].avg_score = this.stats[role].total_score / scoreMessages.length;
+                    }
+                    if (message.structured.agreement) {
+                        this.stats[role].agreements.push(message.structured.agreement);
+                    }
+                },
+                
+                scrollToBottom() {
+                    this.$nextTick(() => {
+                        const container = document.getElementById('messages-container');
+                        if (container) {
+                            container.scrollTop = container.scrollHeight;
+                        }
+                    });
+                },
+                
+                getScoreColor(score) {
+                    if (score >= 8) return 'bg-green-100 text-green-800';
+                    if (score >= 6) return 'bg-yellow-100 text-yellow-800';
+                    if (score >= 4) return 'bg-orange-100 text-orange-800';
+                    return 'bg-red-100 text-red-800';
+                },
+                
+                getAgreementColor(agreement) {
+                    switch (agreement) {
+                        case '强烈同意': return 'bg-green-100 text-green-800';
+                        case '同意': return 'bg-green-100 text-green-700';
+                        case '中立': return 'bg-gray-100 text-gray-700';
+                        case '反对': return 'bg-red-100 text-red-700';
+                        case '强烈反对': return 'bg-red-100 text-red-800';
+                        default: return 'bg-gray-100 text-gray-600';
+                    }
+                },
+                
+                // 讨论控制方法
+                async startDiscussion() {
+                    if (!this.newTopic.trim()) {
+                        alert('请输入讨论主题');
+                        return;
+                    }
+                    
+                    try {
+                        const response = await fetch('/api/start_discussion', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                topic: this.newTopic.trim()
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            this.showStartDialog = false;
+                            this.newTopic = '';
+                            
+                            // 清空旧的消息和统计数据
+                            this.clearOldData();
+                            
+                            this.checkDiscussionStatus();
+                            
+                            // 显示成功消息
+                            this.showNotification('讨论已启动，正在清理旧数据...', 'success');
+                        } else {
+                            alert(result.message);
+                        }
+                    } catch (error) {
+                        console.error('启动讨论失败:', error);
+                        alert('启动讨论失败，请重试');
+                    }
+                },
+                
+                async stopDiscussion() {
+                    if (!confirm('确定要停止当前讨论吗？')) {
+                        return;
+                    }
+                    
+                    try {
+                        const response = await fetch('/api/stop_discussion', {
+                            method: 'POST'
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            this.checkDiscussionStatus();
+                            this.showNotification('讨论已停止', 'info');
+                        } else {
+                            alert(result.message);
+                        }
+                    } catch (error) {
+                        console.error('停止讨论失败:', error);
+                        alert('停止讨论失败，请重试');
+                    }
+                },
+                
+                async checkDiscussionStatus() {
+                    try {
+                        const response = await fetch('/api/discussion_status');
+                        const status = await response.json();
+                        this.discussionStatus = status;
+                    } catch (error) {
+                        console.error('检查讨论状态失败:', error);
+                    }
+                },
+                
+                getRoundNumbers() {
+                    const rounds = [...new Set(this.messages.map(msg => msg.round || 1))];
+                    return rounds.sort((a, b) => a - b);
+                },
+                
+                getMessagesInRound(round) {
+                    return this.messages.filter(msg => (msg.round || 1) === round);
+                },
+                
+                clearOldData() {
+                    // 清空消息和统计数据
+                    this.messages = [];
+                    this.stats = {};
+                    
+                    // 重置所有角色的统计
+                    Object.keys(this.roles).forEach(roleKey => {
+                        this.stats[roleKey] = {
+                            message_count: 0,
+                            total_score: 0,
+                            agreements: [],
+                            avg_score: 0
+                        };
+                    });
+                    
+                    // 清除选中的角色和轮次
+                    this.selectedRole = null;
+                    this.selectedRound = null;
+                    
+                    console.log('✅ 已清空旧的界面数据');
+                },
+                
+                async clearAllData() {
+                    if (!confirm('确定要清空所有数据吗？这将删除所有历史讨论记录。')) {
+                        return;
+                    }
+                    
+                    try {
+                        const response = await fetch('/api/clear_data', {
+                            method: 'POST'
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            // 清空前端数据
+                            this.clearOldData();
+                            this.showNotification('所有数据已清空', 'success');
+                        } else {
+                            alert(result.message);
+                        }
+                    } catch (error) {
+                        console.error('清空数据失败:', error);
+                        alert('清空数据失败，请重试');
+                    }
+                },
+                
+                showNotification(message, type = 'info') {
+                    // 简单的通知实现
+                    const notification = document.createElement('div');
+                    notification.className = `fixed top-4 right-4 px-4 py-2 rounded-md text-white z-50 ${
+                        type === 'success' ? 'bg-green-500' : 
+                        type === 'error' ? 'bg-red-500' : 'bg-blue-500'
+                    }`;
+                    notification.textContent = message;
+                    document.body.appendChild(notification);
+                    
+                    setTimeout(() => {
+                        document.body.removeChild(notification);
+                    }, 3000);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
