@@ -97,61 +97,214 @@ def find_latest_log_file() -> Optional[Path]:
     log_files = sorted(LOG_DIR.glob("*.txt"), key=lambda p: p.stat().st_mtime, reverse=True)
     return log_files[0] if log_files else None
 
-def parse_log_message(line: str) -> Optional[Dict]:
-    """解析日志消息"""
-    try:
-        # 查找 publish_message: 部分
-        if "publish_message:" not in line:
-            return None
+def extract_expert_suggestions(content: str, expert_role: str) -> List[Dict]:
+    """从专家消息中提取关键建议"""
+    suggestions = []
+    
+    # 常见的建议关键词
+    suggestion_keywords = [
+        "建议", "推荐", "应该", "需要", "必须", "可以考虑", "不如", "最好",
+        "问题", "风险", "挑战", "改进", "优化", "增加", "减少", "修改"
+    ]
+    
+    # 按行分析内容
+    lines = content.split('\n')
+    for line in lines:
+        line = line.strip()
+        if len(line) < 10:  # 跳过太短的行
+            continue
+            
+        # 检查是否包含建议关键词
+        has_suggestion = any(keyword in line for keyword in suggestion_keywords)
         
-        # 提取JSON部分 - 找到 "publish_message: " 后的JSON
-        marker = "publish_message: "
-        json_start = line.find(marker)
-        if json_start == -1:
-            return None
-        
-        json_start += len(marker)
-        json_str = line[json_start:].strip()
-        
-        # 解析JSON - 处理可能的多余数据
-        try:
-            message_data = json.loads(json_str)
-        except json.JSONDecodeError as e:
-            # 如果有多余数据，尝试只解析第一个完整的JSON对象
-            if "Extra data" in str(e):
-                # 找到第一个完整的JSON对象
-                brace_count = 0
-                json_end = 0
-                for i, char in enumerate(json_str):
-                    if char == '{':
-                        brace_count += 1
-                    elif char == '}':
-                        brace_count -= 1
-                        if brace_count == 0:
-                            json_end = i + 1
-                            break
+        if has_suggestion:
+            # 清理格式
+            clean_line = re.sub(r'^\d+\.\s*', '', line)
+            clean_line = re.sub(r'^[•\-\*]\s*', '', clean_line)
+            
+            if clean_line and len(clean_line) > 15:
+                # 分类建议类型
+                suggestion_type = categorize_suggestion(clean_line)
                 
-                if json_end > 0:
-                    clean_json = json_str[:json_end]
-                    message_data = json.loads(clean_json)
+                suggestions.append({
+                    "text": clean_line,
+                    "type": suggestion_type,
+                    "expert": expert_role,
+                    "keywords": extract_keywords(clean_line)
+                })
+    
+    return suggestions
+
+def categorize_suggestion(text: str) -> str:
+    """对建议进行分类"""
+    text_lower = text.lower()
+    
+    if any(word in text_lower for word in ["经济", "成本", "效益", "投资", "资金", "费用"]):
+        return "经济建议"
+    elif any(word in text_lower for word in ["环境", "污染", "排放", "生态", "绿色"]):
+        return "环境建议"
+    elif any(word in text_lower for word in ["技术", "系统", "设备", "监控", "自动化"]):
+        return "技术建议"
+    elif any(word in text_lower for word in ["法律", "法规", "合规", "标准", "规范"]):
+        return "法规建议"
+    elif any(word in text_lower for word in ["安全", "风险", "应急", "防护"]):
+        return "安全建议"
+    else:
+        return "一般建议"
+
+def extract_keywords(text: str) -> List[str]:
+    """从文本中提取关键词"""
+    # 简单的关键词提取
+    keywords = []
+    
+    # 常见的政策相关关键词
+    policy_keywords = [
+        "空域", "无人机", "管理", "监控", "安全", "标准", "制度", "系统",
+        "分层", "区域", "运营", "商业", "准入", "条件", "应急", "响应",
+        "成本", "效益", "投资", "资金", "环境", "污染", "技术", "法规"
+    ]
+    
+    for keyword in policy_keywords:
+        if keyword in text:
+            keywords.append(keyword)
+    
+    return keywords[:5]  # 最多返回5个关键词
+
+def find_influencing_suggestions(changes: List[str], expert_suggestions: List[Dict], current_round: int) -> List[Dict]:
+    """找到影响当前政策修订的专家建议"""
+    influencing = []
+    
+    # 查找当前轮次之前的专家建议
+    relevant_suggestions = [
+        s for s in expert_suggestions 
+        if s["round"] <= current_round
+    ]
+    
+    for change in changes:
+        change_lower = change.lower()
+        change_keywords = extract_keywords(change)
+        
+        # 为每个修改找到相关的专家建议
+        for suggestion_group in relevant_suggestions:
+            expert = suggestion_group["expert"]
+            
+            for suggestion in suggestion_group["suggestions"]:
+                # 计算相关性得分
+                relevance_score = calculate_relevance(change, suggestion["text"], suggestion["keywords"])
+                
+                if relevance_score > 0.3:  # 相关性阈值
+                    influencing.append({
+                        "expert": expert,
+                        "suggestion": suggestion["text"],
+                        "type": suggestion["type"],
+                        "relevance_score": relevance_score,
+                        "round": suggestion_group["round"],
+                        "change": change,
+                        "matched_keywords": list(set(change_keywords) & set(suggestion["keywords"]))
+                    })
+    
+    # 按相关性得分排序
+    influencing.sort(key=lambda x: x["relevance_score"], reverse=True)
+    
+    # 去重并限制数量
+    seen_combinations = set()
+    unique_influencing = []
+    
+    for item in influencing:
+        key = (item["expert"], item["suggestion"][:50])  # 使用专家和建议前50字符作为唯一标识
+        if key not in seen_combinations:
+            seen_combinations.add(key)
+            unique_influencing.append(item)
+            
+        if len(unique_influencing) >= 10:  # 最多返回10个相关建议
+            break
+    
+    return unique_influencing
+
+def calculate_relevance(change_text: str, suggestion_text: str, suggestion_keywords: List[str]) -> float:
+    """计算修改和建议之间的相关性得分"""
+    change_lower = change_text.lower()
+    suggestion_lower = suggestion_text.lower()
+    
+    # 关键词匹配得分
+    keyword_matches = sum(1 for keyword in suggestion_keywords if keyword in change_lower)
+    keyword_score = keyword_matches / max(len(suggestion_keywords), 1)
+    
+    # 文本相似度得分（简单的词汇重叠）
+    change_words = set(change_lower.split())
+    suggestion_words = set(suggestion_lower.split())
+    
+    if len(change_words) == 0 or len(suggestion_words) == 0:
+        similarity_score = 0
+    else:
+        intersection = len(change_words & suggestion_words)
+        union = len(change_words | suggestion_words)
+        similarity_score = intersection / union if union > 0 else 0
+    
+    # 综合得分
+    final_score = (keyword_score * 0.7 + similarity_score * 0.3)
+    
+    return final_score
+
+def parse_log_message_DEPRECATED(line: str) -> Optional[Dict]:
+    """解析日志消息（支持两种格式）"""
+    try:
+        # 方式1：解析 [PUBLISH_MESSAGE] 或 publish_message JSON格式
+        if "[PUBLISH_MESSAGE]" in line or "publish_message:" in line:
+            # 提取JSON部分 - 支持两种格式
+            marker = "[PUBLISH_MESSAGE] " if "[PUBLISH_MESSAGE]" in line else "publish_message: "
+            json_start = line.find(marker)
+            if json_start == -1:
+                return None
+            
+            json_start += len(marker)
+            json_str = line[json_start:].strip()
+            
+            # 解析JSON - 处理可能的多余数据
+            try:
+                message_data = json.loads(json_str)
+            except json.JSONDecodeError as e:
+                # 如果有多余数据，尝试只解析第一个完整的JSON对象
+                if "Extra data" in str(e):
+                    # 找到第一个完整的JSON对象
+                    brace_count = 0
+                    json_end = 0
+                    for i, char in enumerate(json_str):
+                        if char == '{':
+                            brace_count += 1
+                        elif char == '}':
+                            brace_count -= 1
+                            if brace_count == 0:
+                                json_end = i + 1
+                                break
+                    
+                    if json_end > 0:
+                        clean_json = json_str[:json_end]
+                        message_data = json.loads(clean_json)
+                    else:
+                        return None
                 else:
                     return None
-            else:
-                return None
+            
+            # 提取时间戳
+            timestamp_match = re.match(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})', line)
+            timestamp = timestamp_match.group(1) if timestamp_match else ""
+            
+            return {
+                "id": message_data.get("id", ""),
+                "content": message_data.get("content", ""),
+                "role": message_data.get("role", ""),
+                "sent_from": message_data.get("sent_from", ""),
+                "send_to": message_data.get("send_to", []),
+                "cause_by": message_data.get("cause_by", ""),
+                "timestamp": timestamp,
+                "format": "json"
+            }
         
-        # 提取时间戳
-        timestamp_match = re.match(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})', line)
-        timestamp = timestamp_match.group(1) if timestamp_match else ""
+        # 方式2：解析 INFO 日志格式 "=== XXX 的回复 ==="
+        # 这个只是标记，实际内容需要在后续行收集
+        return None  # INFO格式需要特殊处理，在get_discussion_data中处理
         
-        return {
-            "id": message_data.get("id", ""),
-            "content": message_data.get("content", ""),
-            "role": message_data.get("role", ""),
-            "sent_from": message_data.get("sent_from", ""),
-            "send_to": message_data.get("send_to", []),
-            "cause_by": message_data.get("cause_by", ""),
-            "timestamp": timestamp
-        }
     except Exception as e:
         # 只在调试时输出错误，避免控制台刷屏
         if "DEBUG_PARSING" in os.environ:
@@ -372,70 +525,67 @@ def extract_round_info(messages: List[Dict]) -> List[Dict]:
 
 def get_discussion_data() -> Dict:
     """获取讨论数据"""
+    import re
+    import hashlib
+    
     latest_log = find_latest_log_file()
     if not latest_log:
         return {"messages": [], "stats": {}}
     
     messages = []
+    seen_contents = set()  # 用于去重
     role_stats = {role: {"message_count": 0, "total_score": 0, "agreements": []} 
                   for role in ROLES_CONFIG.keys()}
     
+    # 角色映射表
+    # 不再需要映射表
+    
     with latest_log.open("r", encoding="utf-8", errors="ignore") as f:
         for line in f:
-            msg = parse_log_message(line)
-            if not msg or not msg["content"].strip():
+            # 只解析 [ROUND_X|角色|内容] 格式 (可能在日志前缀之后)
+            match = re.search(r'\[ROUND_(\d+)\|([^\|]+)\|(.+)\]', line)
+            if not match:
                 continue
             
-            # 映射角色名称
-            display_role = None
+            round_num = int(match.group(1))
+            role_name = match.group(2).strip()
+            content = match.group(3).strip()
+            # 还原换行符
+            content = content.replace('\\n', '\n')
             
-            # 角色映射表
-            role_mapping = {
-                "首席经济学家": "经济顾问",
-                "环境科学家": "环境学家", 
-                "航空法规专家": "合规律师",
-                "无人机生产主管": "制造商",
-                "航空物流总监": "物流公司",
-                "基础设施开发经理": "基建公司",
-                "高级政策制定者": "政策部门"
-            }
-            
-            # 先尝试直接映射
-            for role_key in ROLES_CONFIG.keys():
-                if (role_key in msg["sent_from"] or 
-                    role_key in msg["role"]):
-                    display_role = role_key
-                    break
-            
-            # 如果直接映射失败，尝试通过映射表
-            if not display_role:
-                for profile, role_key in role_mapping.items():
-                    if profile in msg["role"] or profile in msg["sent_from"]:
-                        display_role = role_key
-                        break
-            
-            # 如果还是没找到，跳过这条消息
+            # 映射角色名
+            display_role = role_name if role_name in ROLES_CONFIG else None
             if not display_role:
                 continue
             
-            # 解析结构化内容
-            structured = extract_structured_content(msg["content"], display_role)
+            # 去重
+            fingerprint = f"{display_role}:{round_num}:{content[:50]}"
+            if fingerprint in seen_contents:
+                continue
+            seen_contents.add(fingerprint)
             
-            message = {
-                "id": msg["id"],
+            # 提取时间戳
+            timestamp_match = re.match(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', line)
+            timestamp = timestamp_match.group(1) if timestamp_match else ""
+            
+            # 创建消息
+            message_id = hashlib.md5(f"{role_name}_{round_num}_{content[:50]}".encode()).hexdigest()[:16]
+            structured = extract_structured_content(content, display_role)
+            
+            messages.append({
+                "id": message_id,
                 "role": display_role,
                 "role_config": ROLES_CONFIG[display_role],
-                "content": msg["content"],
+                "content": content,
                 "structured": structured,
-                "timestamp": msg["timestamp"],
-                "send_to": msg["send_to"]
-            }
+                "timestamp": timestamp,
+                "send_to": [],
+                "round": round_num
+            })
             
-            messages.append(message)
-            
-            # 更新统计信息
+            # 更新统计
             role_stats[display_role]["message_count"] += 1
-            if structured["score"] is not None:
+            if structured["score"]:
                 role_stats[display_role]["total_score"] += structured["score"]
             if structured["agreement"]:
                 role_stats[display_role]["agreements"].append(structured["agreement"])
@@ -602,6 +752,11 @@ def index():
                          roles=ROLES_CONFIG,
                          data=data,
                          now=datetime.now())
+
+@app.route("/history")
+def policy_history():
+    """政策修订历史页面"""
+    return render_template("policy_history.html")
 
 @app.route("/api/discussion")
 def api_discussion():
@@ -772,6 +927,153 @@ def api_clear_data():
             "success": False,
             "message": f"清空失败: {str(e)}"
         }), 500
+
+@app.route("/api/policy_history")
+def api_policy_history():
+    """获取政策修订历史"""
+    try:
+        data = get_discussion_data()
+        messages = data.get("messages", [])
+        
+        # 提取政策版本和专家建议
+        policy_versions = []
+        expert_suggestions = []
+        version_number = 0
+        
+        # 首先收集所有专家建议
+        for msg in messages:
+            content = msg.get("content", "")
+            role = msg.get("role", "")
+            timestamp = msg.get("timestamp", "")
+            round_num = msg.get("round", 1)
+            
+            # 识别专家建议（非政策制定者的消息）
+            if role not in ["政策制定者", "政策部门"] and len(content) > 30:
+                # 提取关键建议
+                suggestions = extract_expert_suggestions(content, role)
+                if suggestions:
+                    expert_suggestions.append({
+                        "expert": role,
+                        "round": round_num,
+                        "timestamp": timestamp,
+                        "suggestions": suggestions,
+                        "full_content": content,
+                        "message_id": len(expert_suggestions)
+                    })
+        
+        # 然后处理政策版本，并关联专家建议
+        for msg in messages:
+            content = msg.get("content", "")
+            role = msg.get("role", "")
+            timestamp = msg.get("timestamp", "")
+            round_num = msg.get("round", 1)
+            
+            # 查找政策修订消息
+            if "修订后的政策:" in content:
+                version_number += 1
+                
+                # 提取政策内容
+                policy_content = ""
+                changes = []
+                
+                try:
+                    # 分割内容
+                    parts = content.split("修订后的政策:")
+                    if len(parts) > 1:
+                        policy_part = parts[1]
+                        
+                        # 进一步分割获取政策内容和修改说明
+                        if "所做修改:" in policy_part:
+                            policy_content = policy_part.split("所做修改:")[0].strip()
+                            changes_part = policy_part.split("所做修改:")[1].strip()
+                            
+                            # 解析修改列表
+                            change_lines = [line.strip() for line in changes_part.split('\n') if line.strip()]
+                            for line in change_lines:
+                                if line and not line.startswith('修改') and len(line) > 5:
+                                    # 清理编号和格式
+                                    clean_line = re.sub(r'^\d+\.\s*', '', line)
+                                    clean_line = re.sub(r'^[•\-\*]\s*', '', clean_line)
+                                    if clean_line:
+                                        changes.append(clean_line)
+                        else:
+                            policy_content = policy_part.strip()
+                    
+                    # 如果没有找到标准格式，使用整个内容
+                    if not policy_content:
+                        policy_content = content
+                        
+                except Exception as e:
+                    logger.error(f"解析政策内容失败: {e}")
+                    policy_content = content
+                
+                # 找到影响此次修订的专家建议
+                influencing_suggestions = find_influencing_suggestions(
+                    changes, expert_suggestions, round_num
+                )
+                
+                # 创建版本记录
+                version = {
+                    "version": version_number,
+                    "round": round_num,
+                    "timestamp": timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "content": policy_content,
+                    "changes": changes,
+                    "expert": role,
+                    "raw_message": content,
+                    "influencing_suggestions": influencing_suggestions,
+                    "expert_feedback_count": len(influencing_suggestions)
+                }
+                
+                policy_versions.append(version)
+        
+        # 如果没有找到政策版本，创建一个初始版本
+        if not policy_versions and messages:
+            # 查找第一个政策制定者的消息作为初始版本
+            for msg in messages:
+                role = msg.get("role", "")
+                if role in ["政策制定者", "政策部门"]:
+                    content = msg.get("content", "")
+                    if len(content) > 50:  # 确保有实质内容
+                        version = {
+                            "version": 1,
+                            "round": msg.get("round", 1),
+                            "timestamp": msg.get("timestamp", ""),
+                            "content": content,
+                            "changes": ["初始政策制定"],
+                            "expert": role,
+                            "raw_message": content
+                        }
+                        policy_versions.append(version)
+                        break
+        
+        # 计算统计信息
+        current_round = max([msg.get("round", 1) for msg in messages]) if messages else 1
+        
+        # 统计专家参与情况
+        participating_experts = set()
+        for suggestion_group in expert_suggestions:
+            participating_experts.add(suggestion_group["expert"])
+        
+        return jsonify({
+            "versions": policy_versions,
+            "expert_suggestions": expert_suggestions,
+            "total_versions": len(policy_versions),
+            "current_round": current_round,
+            "participating_experts": list(participating_experts),
+            "total_suggestions": sum(len(s["suggestions"]) for s in expert_suggestions),
+            "last_update": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"获取政策历史失败: {e}")
+        return jsonify({
+            "versions": [],
+            "total_versions": 0,
+            "current_round": 1,
+            "last_update": datetime.now().isoformat(),
+            "error": str(e)
+        })
 
 if __name__ == "__main__":
     # 确保目录存在

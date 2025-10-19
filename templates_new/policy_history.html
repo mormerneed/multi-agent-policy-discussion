@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>政策修订历史</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .diff-added {
+            background-color: #dcfce7;
+            color: #166534;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        .diff-removed {
+            background-color: #fef2f2;
+            color: #dc2626;
+            text-decoration: line-through;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        .diff-modified {
+            background-color: #fef3c7;
+            color: #d97706;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        .version-card {
+            transition: all 0.3s ease;
+        }
+        .version-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+        }
+        .timeline-line {
+            position: relative;
+        }
+        .timeline-line::before {
+            content: '';
+            position: absolute;
+            left: 20px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: linear-gradient(to bottom, #3b82f6, #10b981);
+        }
+        .timeline-dot {
+            position: relative;
+            z-index: 10;
+        }
+        .policy-content {
+            line-height: 1.8;
+            white-space: pre-wrap;
+        }
+        .change-indicator {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div x-data="policyHistoryData()" x-init="init()" class="container mx-auto px-4 py-8">
+        <!-- 导航栏 -->
+        <nav class="bg-white shadow-sm border-b mb-8 -mx-4 -mt-8 px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                    <a href="/" class="text-blue-600 hover:text-blue-800 flex items-center">
+                        <i class="fas fa-arrow-left mr-2"></i>
+                        <span>返回讨论面板</span>
+                    </a>
+                </div>
+                <h1 class="text-xl font-bold text-gray-900">📜 政策修订历史</h1>
+                <div class="flex items-center space-x-2">
+                    <button @click="refreshData()" 
+                            class="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">
+                        <i class="fas fa-sync-alt mr-1"></i>刷新
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <!-- 统计概览 -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-white rounded-lg shadow-md p-4">
+                <div class="flex items-center">
+                    <div class="p-2 bg-blue-100 rounded-lg">
+                        <i class="fas fa-file-alt text-blue-600 text-xl"></i>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm font-medium text-gray-600">政策版本</p>
+                        <p class="text-2xl font-bold text-gray-900" x-text="policyVersions.length"></p>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white rounded-lg shadow-md p-4">
+                <div class="flex items-center">
+                    <div class="p-2 bg-green-100 rounded-lg">
+                        <i class="fas fa-edit text-green-600 text-xl"></i>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm font-medium text-gray-600">修改次数</p>
+                        <p class="text-2xl font-bold text-gray-900" x-text="totalChanges"></p>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white rounded-lg shadow-md p-4">
+                <div class="flex items-center">
+                    <div class="p-2 bg-purple-100 rounded-lg">
+                        <i class="fas fa-users text-purple-600 text-xl"></i>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm font-medium text-gray-600">专家建议</p>
+                        <p class="text-2xl font-bold text-gray-900" x-text="totalSuggestions"></p>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white rounded-lg shadow-md p-4">
+                <div class="flex items-center">
+                    <div class="p-2 bg-orange-100 rounded-lg">
+                        <i class="fas fa-clock text-orange-600 text-xl"></i>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm font-medium text-gray-600">当前轮次</p>
+                        <p class="text-2xl font-bold text-gray-900" x-text="currentRound"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 视图切换 -->
+        <div class="bg-white rounded-lg shadow-md p-4 mb-6">
+            <div class="flex items-center justify-between">
+                <div class="flex space-x-4">
+                    <button @click="viewMode = 'timeline'" 
+                            :class="viewMode === 'timeline' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+                            class="px-4 py-2 rounded-lg font-medium transition-colors">
+                        <i class="fas fa-timeline mr-2"></i>时间线视图
+                    </button>
+                    <button @click="viewMode = 'comparison'" 
+                            :class="viewMode === 'comparison' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+                            class="px-4 py-2 rounded-lg font-medium transition-colors">
+                        <i class="fas fa-columns mr-2"></i>对比视图
+                    </button>
+                    <button @click="viewMode = 'changes'" 
+                            :class="viewMode === 'changes' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+                            class="px-4 py-2 rounded-lg font-medium transition-colors">
+                        <i class="fas fa-list-ul mr-2"></i>变更列表
+                    </button>
+                </div>
+                <div class="text-sm text-gray-600">
+                    <span x-show="policyVersions.length > 0">
+                        最后更新: <span x-text="lastUpdateTime"></span>
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 时间线视图 -->
+        <div x-show="viewMode === 'timeline'" class="space-y-6">
+            <template x-for="(version, index) in policyVersions" :key="index">
+                <div class="relative">
+                    <div class="timeline-line" x-show="index < policyVersions.length - 1"></div>
+                    <div class="flex items-start space-x-4">
+                        <!-- 时间线点 -->
+                        <div class="timeline-dot flex-shrink-0 w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm"
+                             x-text="index + 1"></div>
+                        
+                        <!-- 版本卡片 -->
+                        <div class="version-card flex-1 bg-white rounded-lg shadow-md p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <div>
+                                    <h3 class="text-lg font-bold text-gray-900">
+                                        <i class="fas fa-file-alt mr-2 text-blue-600"></i>
+                                        版本 <span x-text="index + 1"></span>
+                                        <span x-show="index === 0" class="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">初始版本</span>
+                                        <span x-show="index === policyVersions.length - 1 && index > 0" class="ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">最新版本</span>
+                                    </h3>
+                                    <p class="text-sm text-gray-600">
+                                        轮次 <span x-text="version.round"></span> | 
+                                        时间: <span x-text="version.timestamp"></span>
+                                    </p>
+                                </div>
+                                <div class="flex space-x-2">
+                                    <button @click="selectedVersion = index" 
+                                            class="px-3 py-1 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200">
+                                        <i class="fas fa-eye mr-1"></i>查看详情
+                                    </button>
+                                    <button x-show="index > 0" @click="compareVersions(index-1, index)"
+                                            class="px-3 py-1 bg-blue-100 text-blue-700 rounded text-sm hover:bg-blue-200">
+                                        <i class="fas fa-exchange-alt mr-1"></i>对比
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- 政策内容预览 -->
+                            <div class="bg-gray-50 rounded-lg p-4 mb-4">
+                                <h4 class="font-medium text-gray-900 mb-2">政策内容:</h4>
+                                <div class="policy-content text-sm text-gray-700" 
+                                     x-text="version.content.substring(0, 200) + (version.content.length > 200 ? '...' : '')"></div>
+                            </div>
+                            
+                            <!-- 修改摘要 -->
+                            <div x-show="version.changes && version.changes.length > 0" class="border-t pt-4">
+                                <h4 class="font-medium text-gray-900 mb-2">
+                                    <i class="fas fa-list-ul mr-2 text-green-600"></i>主要修改:
+                                </h4>
+                                <ul class="space-y-1">
+                                    <template x-for="change in version.changes.slice(0, 3)" :key="change">
+                                        <li class="text-sm text-gray-600 flex items-start">
+                                            <span class="w-2 h-2 bg-green-400 rounded-full mt-2 mr-2 flex-shrink-0"></span>
+                                            <span x-text="change"></span>
+                                        </li>
+                                    </template>
+                                    <li x-show="version.changes.length > 3" class="text-sm text-gray-500 ml-4">
+                                        ... 还有 <span x-text="version.changes.length - 3"></span> 项修改
+                                    </li>
+                                </ul>
+                            </div>
+                            
+                            <!-- 影响此次修订的专家建议 -->
+                            <div x-show="version.influencing_suggestions && version.influencing_suggestions.length > 0" class="border-t pt-4 mt-4">
+                                <h4 class="font-medium text-gray-900 mb-3">
+                                    <i class="fas fa-lightbulb mr-2 text-yellow-600"></i>促成修改的专家建议:
+                                </h4>
+                                <div class="space-y-3">
+                                    <template x-for="suggestion in version.influencing_suggestions.slice(0, 3)" :key="suggestion.expert + suggestion.suggestion">
+                                        <div class="bg-yellow-50 rounded-lg p-3 border-l-4 border-yellow-400">
+                                            <div class="flex items-start justify-between mb-2">
+                                                <div class="flex items-center">
+                                                    <span class="inline-block w-6 h-6 bg-yellow-100 rounded-full text-center text-xs font-bold text-yellow-800 mr-2"
+                                                          x-text="suggestion.expert.charAt(0)"></span>
+                                                    <span class="font-medium text-yellow-800" x-text="suggestion.expert"></span>
+                                                    <span class="ml-2 px-2 py-1 bg-yellow-200 text-yellow-700 text-xs rounded-full" 
+                                                          x-text="suggestion.type"></span>
+                                                </div>
+                                                <div class="text-xs text-yellow-600">
+                                                    相关度: <span x-text="Math.round(suggestion.relevance_score * 100)"></span>%
+                                                </div>
+                                            </div>
+                                            <p class="text-sm text-yellow-700 mb-2" x-text="suggestion.suggestion"></p>
+                                            <div class="flex items-center text-xs text-yellow-600">
+                                                <i class="fas fa-arrow-right mr-1"></i>
+                                                <span>影响修改: </span>
+                                                <span class="font-medium ml-1" x-text="suggestion.change"></span>
+                                            </div>
+                                            <div x-show="suggestion.matched_keywords && suggestion.matched_keywords.length > 0" class="mt-2">
+                                                <div class="flex flex-wrap gap-1">
+                                                    <template x-for="keyword in suggestion.matched_keywords" :key="keyword">
+                                                        <span class="px-2 py-1 bg-yellow-200 text-yellow-700 text-xs rounded-full" x-text="keyword"></span>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <div x-show="version.influencing_suggestions.length > 3" class="text-center">
+                                        <button @click="showAllSuggestions(index)" 
+                                                class="text-sm text-blue-600 hover:text-blue-800">
+                                            查看全部 <span x-text="version.influencing_suggestions.length"></span> 个相关建议
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+            
+            <!-- 空状态 -->
+            <div x-show="policyVersions.length === 0" class="text-center py-12">
+                <i class="fas fa-file-alt text-gray-400 text-6xl mb-4"></i>
+                <h3 class="text-lg font-medium text-gray-900 mb-2">暂无政策版本</h3>
+                <p class="text-gray-600">开始一个讨论来查看政策修订历史</p>
+            </div>
+        </div>
+
+        <!-- 对比视图 -->
+        <div x-show="viewMode === 'comparison'" class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-lg font-bold text-gray-900">版本对比</h3>
+                <div class="flex space-x-4">
+                    <select x-model="compareVersion1" class="border rounded px-3 py-2 text-sm">
+                        <option value="">选择版本1</option>
+                        <template x-for="(version, index) in policyVersions" :key="index">
+                            <option :value="index" x-text="`版本 ${index + 1} (轮次 ${version.round})`"></option>
+                        </template>
+                    </select>
+                    <select x-model="compareVersion2" class="border rounded px-3 py-2 text-sm">
+                        <option value="">选择版本2</option>
+                        <template x-for="(version, index) in policyVersions" :key="index">
+                            <option :value="index" x-text="`版本 ${index + 1} (轮次 ${version.round})`"></option>
+                        </template>
+                    </select>
+                    <button @click="generateComparison()" 
+                            :disabled="compareVersion1 === '' || compareVersion2 === ''"
+                            class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50">
+                        对比
+                    </button>
+                </div>
+            </div>
+            
+            <div x-show="comparisonResult" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- 版本1 -->
+                <div class="border rounded-lg p-4">
+                    <h4 class="font-medium text-gray-900 mb-3" x-text="comparisonResult ? `版本 ${parseInt(compareVersion1) + 1}` : ''"></h4>
+                    <div class="policy-content text-sm bg-gray-50 rounded p-3 h-96 overflow-y-auto" 
+                         x-html="comparisonResult ? comparisonResult.version1Html : ''"></div>
+                </div>
+                
+                <!-- 版本2 -->
+                <div class="border rounded-lg p-4">
+                    <h4 class="font-medium text-gray-900 mb-3" x-text="comparisonResult ? `版本 ${parseInt(compareVersion2) + 1}` : ''"></h4>
+                    <div class="policy-content text-sm bg-gray-50 rounded p-3 h-96 overflow-y-auto" 
+                         x-html="comparisonResult ? comparisonResult.version2Html : ''"></div>
+                </div>
+            </div>
+            
+            <!-- 差异摘要 -->
+            <div x-show="comparisonResult && comparisonResult.summary" class="mt-6 border-t pt-6">
+                <h4 class="font-medium text-gray-900 mb-3">
+                    <i class="fas fa-chart-line mr-2 text-blue-600"></i>差异摘要
+                </h4>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-green-50 rounded-lg p-4">
+                        <div class="text-2xl font-bold text-green-600" x-text="comparisonResult ? comparisonResult.summary.added : 0"></div>
+                        <div class="text-sm text-green-700">新增内容</div>
+                    </div>
+                    <div class="bg-red-50 rounded-lg p-4">
+                        <div class="text-2xl font-bold text-red-600" x-text="comparisonResult ? comparisonResult.summary.removed : 0"></div>
+                        <div class="text-sm text-red-700">删除内容</div>
+                    </div>
+                    <div class="bg-yellow-50 rounded-lg p-4">
+                        <div class="text-2xl font-bold text-yellow-600" x-text="comparisonResult ? comparisonResult.summary.modified : 0"></div>
+                        <div class="text-sm text-yellow-700">修改内容</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 变更列表视图 -->
+        <div x-show="viewMode === 'changes'" class="space-y-4">
+            <template x-for="(change, index) in allChanges" :key="index">
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center">
+                            <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-bold mr-3"
+                                 x-text="change.version"></div>
+                            <div>
+                                <h3 class="font-medium text-gray-900">轮次 <span x-text="change.round"></span> 的修改</h3>
+                                <p class="text-sm text-gray-600" x-text="change.timestamp"></p>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span :class="change.type === 'major' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'"
+                                  class="px-2 py-1 rounded-full text-xs font-medium">
+                                <span x-text="change.type === 'major' ? '重大修改' : '轻微修改'"></span>
+                            </span>
+                            <span class="text-sm text-gray-500" x-text="`${change.changeCount} 项变更`"></span>
+                        </div>
+                    </div>
+                    
+                    <div class="space-y-2">
+                        <template x-for="item in change.items" :key="item">
+                            <div class="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                                <i class="fas fa-arrow-right text-blue-600 mt-1"></i>
+                                <span class="text-sm text-gray-700" x-text="item"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <script>
+        function policyHistoryData() {
+            return {
+                policyVersions: [],
+                expertSuggestions: [],
+                viewMode: 'timeline',
+                selectedVersion: null,
+                compareVersion1: '',
+                compareVersion2: '',
+                comparisonResult: null,
+                currentRound: 1,
+                lastUpdateTime: '',
+                updateInterval: null,
+                totalSuggestions: 0,
+                participatingExperts: [],
+                
+                get totalChanges() {
+                    return this.policyVersions.reduce((sum, version) => sum + (version.changes ? version.changes.length : 0), 0);
+                },
+                
+                get participatingExpertsCount() {
+                    return this.participatingExperts.length;
+                },
+                
+                get allChanges() {
+                    return this.policyVersions.map((version, index) => ({
+                        version: index + 1,
+                        round: version.round,
+                        timestamp: version.timestamp,
+                        type: version.changes && version.changes.length > 3 ? 'major' : 'minor',
+                        changeCount: version.changes ? version.changes.length : 0,
+                        items: version.changes || []
+                    })).filter(change => change.changeCount > 0);
+                },
+                
+                async init() {
+                    await this.loadPolicyHistory();
+                    this.startAutoRefresh();
+                },
+                
+                async loadPolicyHistory() {
+                    try {
+                        const response = await fetch('/api/policy_history');
+                        const data = await response.json();
+                        
+                        this.policyVersions = data.versions || [];
+                        this.expertSuggestions = data.expert_suggestions || [];
+                        this.currentRound = data.current_round || 1;
+                        this.totalSuggestions = data.total_suggestions || 0;
+                        this.participatingExperts = data.participating_experts || [];
+                        this.lastUpdateTime = new Date().toLocaleString();
+                        
+                        console.log('政策历史加载完成:', this.policyVersions.length, '个版本,', this.totalSuggestions, '个专家建议');
+                    } catch (error) {
+                        console.error('加载政策历史失败:', error);
+                    }
+                },
+                
+                async refreshData() {
+                    await this.loadPolicyHistory();
+                },
+                
+                startAutoRefresh() {
+                    this.updateInterval = setInterval(() => {
+                        this.loadPolicyHistory();
+                    }, 5000); // 每5秒刷新
+                },
+                
+                compareVersions(v1, v2) {
+                    this.compareVersion1 = v1.toString();
+                    this.compareVersion2 = v2.toString();
+                    this.viewMode = 'comparison';
+                    this.generateComparison();
+                },
+                
+                generateComparison() {
+                    if (this.compareVersion1 === '' || this.compareVersion2 === '') return;
+                    
+                    const version1 = this.policyVersions[parseInt(this.compareVersion1)];
+                    const version2 = this.policyVersions[parseInt(this.compareVersion2)];
+                    
+                    if (!version1 || !version2) return;
+                    
+                    // 简单的文本对比逻辑
+                    const lines1 = version1.content.split('\n');
+                    const lines2 = version2.content.split('\n');
+                    
+                    let version1Html = '';
+                    let version2Html = '';
+                    let added = 0, removed = 0, modified = 0;
+                    
+                    // 基础对比逻辑
+                    const maxLines = Math.max(lines1.length, lines2.length);
+                    for (let i = 0; i < maxLines; i++) {
+                        const line1 = lines1[i] || '';
+                        const line2 = lines2[i] || '';
+                        
+                        if (line1 === line2) {
+                            version1Html += `<div>${this.escapeHtml(line1)}</div>`;
+                            version2Html += `<div>${this.escapeHtml(line2)}</div>`;
+                        } else if (line1 && !line2) {
+                            version1Html += `<div class="diff-removed">${this.escapeHtml(line1)}</div>`;
+                            version2Html += `<div></div>`;
+                            removed++;
+                        } else if (!line1 && line2) {
+                            version1Html += `<div></div>`;
+                            version2Html += `<div class="diff-added">${this.escapeHtml(line2)}</div>`;
+                            added++;
+                        } else {
+                            version1Html += `<div class="diff-modified">${this.escapeHtml(line1)}</div>`;
+                            version2Html += `<div class="diff-modified">${this.escapeHtml(line2)}</div>`;
+                            modified++;
+                        }
+                    }
+                    
+                    this.comparisonResult = {
+                        version1Html,
+                        version2Html,
+                        summary: { added, removed, modified }
+                    };
+                },
+                
+                escapeHtml(text) {
+                    const div = document.createElement('div');
+                    div.textContent = text;
+                    return div.innerHTML;
+                },
+                
+                showAllSuggestions(versionIndex) {
+                    // 显示该版本的所有相关建议
+                    const version = this.policyVersions[versionIndex];
+                    if (version && version.influencing_suggestions) {
+                        // 这里可以打开一个模态框或展开显示
+                        console.log('显示版本', versionIndex + 1, '的所有建议:', version.influencing_suggestions);
+                        
+                        // 简单实现：切换到变更列表视图并高亮该版本
+                        this.viewMode = 'changes';
+                        this.selectedVersion = versionIndex;
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

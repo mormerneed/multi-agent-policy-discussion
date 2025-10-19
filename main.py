@@ -6,212 +6,14 @@ import asyncio
 import platform
 from typing import Any, Dict, List
 from difflib import SequenceMatcher
-import logging
 
 import fire
 
-# 设置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
-logger = logging.getLogger(__name__)
-
-# 尝试导入MetaGPT，如果失败则使用简化版本
-try:
-    from metagpt.logs import logger as metagpt_logger
-    from metagpt.roles import Role
-    from metagpt.schema import Message
-    from metagpt.team import Team
-    from metagpt.actions import Action, UserRequirement
-    METAGPT_AVAILABLE = True
-    logger.info("MetaGPT导入成功")
-except ImportError as e:
-    logger.warning(f"MetaGPT导入失败: {e}")
-    logger.info("使用简化版本...")
-    METAGPT_AVAILABLE = False
-    
-    # 创建简化的类
-    class Message:
-        def __init__(self, content="", role="", cause_by=None, sent_from="", send_to=None):
-            self.content = content
-            self.role = role
-            self.cause_by = cause_by
-            self.sent_from = sent_from
-            self.send_to = send_to
-    
-    class Action:
-        def __init__(self):
-            self.name = "Action"
-        
-        async def _aask(self, prompt):
-            # 使用真正的AI API
-            try:
-                import openai
-                client = openai.OpenAI(
-                    api_key="9c4b5e32f28a435fad45e813335d9c0e.cGnGRKpzYc6esxB4",
-                    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
-                )
-                
-                response = client.chat.completions.create(
-                    model="qwen-plus",
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=1000,
-                    temperature=0.7
-                )
-                return response.choices[0].message.content
-            except Exception as e:
-                logger.error(f"AI API调用失败: {e}")
-                # 如果API失败，使用模拟响应
-                return self._get_mock_response(prompt)
-        
-        def _get_mock_response(self, prompt):
-            """生成模拟响应"""
-            if "政策部门" in prompt or "政策制定者" in prompt:
-                return """
-修订后的政策:
-建立分层低空空域区域与动态无人机交通管理系统，支持商业无人机运营
-
-具体措施：
-1. 设立低空空域分层管理制度，分为禁飞区、限制区和开放区
-2. 建立无人机交通管理系统，实现实时监控和调度
-3. 制定商业无人机运营标准和准入条件
-4. 建立安全监管机制和应急响应体系
-
-所做修改:
-1. 增加了分层管理制度的详细说明
-2. 明确了商业运营的具体条件
-"""
-            elif "经济顾问" in prompt or "经济学家" in prompt:
-                return """
-关键经济问题:
-1. 空域资源利用效率问题 - 需要量化空域使用率和经济效益
-2. 监管成本与市场活力的平衡 - 过严监管可能抑制创新
-3. 基础设施建设投资回报 - 需要明确投资规模和预期收益
-
-建议改进:
-- 建议建立空域使用费制度，提高资源利用效率
-- 建议设立产业发展基金，支持技术创新
-
-可接受性评分: 7/10
-同意程度: 同意
-"""
-            elif "环境学家" in prompt or "环境科学家" in prompt:
-                return """
-关键环境问题:
-1. 噪音污染控制 - 需要制定分贝限制标准
-2. 碳排放影响 - 无人机运营会增加碳排放
-3. 野生动物干扰 - 低空飞行可能影响鸟类栖息
-
-建议改进:
-- 建议在生态敏感区域设立禁飞区
-- 建议推广电动无人机，减少碳排放
-
-环境影响评分: 6/10
-同意程度: 中立
-"""
-            elif "合规律师" in prompt or "法规专家" in prompt:
-                return """
-法规合规问题:
-1. 空域管理权限问题 - 需要明确各级管理权限
-2. 责任划分不明确 - 事故责任归属需要明确
-3. 国际标准对接 - 需要符合国际民航组织标准
-
-建议修改:
-- 建议明确空域管理部门的职责分工
-- 建议建立责任保险制度
-
-合规风险评分: 5/10
-同意程度: 反对
-"""
-            elif "制造商" in prompt or "生产主管" in prompt:
-                return """
-制造问题:
-1. 技术标准不统一 - 影响批量生产成本
-2. 认证流程复杂 - 增加产品上市时间
-3. 供应链管理 - 需要建立标准化供应链
-
-建议修改:
-- 建议制定统一的技术标准
-- 建议简化认证流程
-
-可制造性评分: 6/10
-同意程度: 中立
-"""
-            elif "物流公司" in prompt or "物流总监" in prompt:
-                return """
-物流运营问题:
-1. 空域使用限制 - 影响配送效率
-2. 成本控制 - 需要平衡效率与成本
-3. 可扩展性 - 需要支持大规模运营
-
-建议修改:
-- 建议优化空域分配机制
-- 建议建立动态定价系统
-
-运营可行性评分: 8/10
-同意程度: 同意
-"""
-            elif "基建公司" in prompt or "基础设施" in prompt:
-                return """
-基础设施开发问题:
-1. 建设成本高 - 需要大量投资
-2. 技术标准 - 需要统一的技术规范
-3. 维护管理 - 需要建立长期维护机制
-
-建议修改:
-- 建议分阶段建设，降低初期投资
-- 建议建立标准化建设规范
-
-基础设施可行性评分: 7/10
-同意程度: 同意
-"""
-            else:
-                return f"模拟响应: {prompt[:100]}..."
-    
-    class Role:
-        def __init__(self, **kwargs):
-            self.name = kwargs.get('name', 'Role')
-            self.profile = kwargs.get('profile', 'Role')
-            self.rc = type('RC', (), {'news': [], 'todo': None, 'memory': type('Memory', (), {'add': lambda x: None})()})()
-            self._watch = lambda x: None
-            self.set_actions = lambda x: None
-            self.get_memories = lambda: []
-            self.actions = []
-        
-        async def _observe(self):
-            return len(self.rc.news)
-        
-        async def _act(self):
-            if self.actions:
-                action = self.actions[0]()
-                prompt = f"作为{self.profile}，请分析政策并提供专业意见。"
-                response = await action._aask(prompt)
-                return Message(content=response, role=self.profile, sent_from=self.name)
-            return Message()
-    
-    class Team:
-        def __init__(self):
-            self.members = []
-            self.idea = ""
-        
-        def hire(self, roles):
-            self.members.extend(roles)
-        
-        def invest(self, amount):
-            pass
-        
-        def run_project(self, idea, send_to=None):
-            self.idea = idea
-        
-        async def run(self, n_round=1):
-            for round_num in range(n_round):
-                logger.info(f"\n=== 第 {round_num + 1} 轮讨论 ===")
-                for member in self.members:
-                    logger.info(f"\n--- {member.name} 发言 ---")
-                    message = await member._act()
-                    logger.info(message.content)
-                    logger.info("-" * 40)
-    
-    class UserRequirement:
-        pass
+from metagpt.logs import logger
+from metagpt.roles import Role
+from metagpt.schema import Message
+from metagpt.team import Team
+from metagpt.actions import Action, UserRequirement
 
 # 政策修订动作
 class PolicyRevision(Action):
@@ -253,12 +55,7 @@ class PolicyRevision(Action):
 
     async def run(self, context: str, name1: str, opponent_name1: str):
         prompt = self.PROMPT_TEMPLATE.format(context=context, name1=name1, opponent_name1=opponent_name1)
-        logger.debug(f"PolicyRevision prompt: {prompt[:200]}...")
         rsp = await self._aask(prompt)
-        logger.debug(f"PolicyRevision response: {rsp}")
-        if not rsp or rsp.strip() == "":
-            logger.error("PolicyRevision returned empty response!")
-            rsp = "错误：AI模型未返回有效响应，请检查API配置"
         return rsp
 
 # 经济反馈动作
@@ -285,9 +82,11 @@ class EconomicFeedback(Action):
 
     ## 任务
     1. 阅读以下讨论历史：{context}，并进行政策经济性分析。
-    2. 列出至少3个需要改进或关注的领域，并说明为何重要（用可量化指标或推理）。
-    3. 提出2项可衡量的改进建议，包括预期经济收益数据。
-    4. 对政策整体经济可行性进行1-10分评分，并明确同意程度
+    2. **重要**：检查您之前的发言，**避免重复提出相同的问题或建议**。
+    3. **只关注最新政策修订**中出现的**新问题**或**未解决的旧问题**。
+    4. 列出1-3个**新的**或**加剧的**经济问题，用可量化指标说明。
+    5. 提出1-2项**具体可行**的改进建议，包括预期经济收益数据。
+    6. 对政策整体经济可行性进行1-10分评分，并明确同意程度（前几轮应更严格）
 
 
     ## 输出格式
@@ -335,9 +134,11 @@ class EnvironmentalFeedback(Action):
 
     ## 任务
     1. 阅读以下讨论历史：{context}，并评估政策的环境影响。
-    2. 列出至少3个环境风险或潜在益处，并说明影响路径与可量化指标。
-    3. 提出2项可量化的改进建议，包括预期环境改善效果
-    4. 评估整体环境影响评分（1-10）。
+    2. **重要**：检查您之前的发言，**避免重复提出相同的环境问题**。
+    3. **只关注最新政策修订**中出现的**新的环境风险**或**未解决的旧问题**。
+    4. 列出1-3个**新的**或**加剧的**环境问题，用可量化指标说明。
+    5. 提出1-2项**具体可行**的改进建议，包括预期环境改善效果。
+    6. 评估整体环境影响评分（1-10），前几轮应更严格。
 
 
     ## 输出格式
@@ -387,9 +188,11 @@ class LegalComplianceReview(Action):
 
     ## 任务
     1. 阅读以下讨论历史：{context}，并从法律角度分析政策合规性。
-    2. 列出至少1个法规合规问题，并引用相关法律条文或准则作为依据。
-    3. 为每项合规问题提出法律上合理的修改建议或替代方案，并评估其可行性。
-    4. 给出整体合规风险评分（1-10）。
+    2. **重要**：检查您之前的发言，**避免重复提出相同的合规问题**。
+    3. **只关注最新政策修订**中出现的**新的法律风险**或**未解决的旧问题**。
+    4. 列出1-3个**新的**合规问题，并引用相关法律条文。
+    5. 提出法律上合理的修改建议。
+    6. 给出整体合规风险评分（1-10），前几轮应更严格。
 
 
     ## 输出格式
@@ -439,9 +242,11 @@ class ManufacturingFeedback(Action):
 
     ## 任务
     1. 阅读以下讨论历史：{context}，并评估政策对制造与供应链的影响。
-    2. 列出至少3个对制造业务的具体影响，并分析对成本和时间的影响。
-    3. 提出行业友好的替代方案并给出实施时间表或阶段性里程碑。
-    4. 给出整体可制造性评分（1-10）。
+    2. **重要**：检查您之前的发言，**避免重复提出相同的制造问题**。
+    3. **只关注最新政策修订**中出现的**新的制造挑战**或**未解决的旧问题**。
+    4. 列出1-3个**新的**对制造业务的具体影响。
+    5. 提出行业友好的替代方案并给出实施时间表。
+    6. 给出整体可制造性评分（1-10），前几轮应更严格。
 
 
     ## 输出格式
@@ -489,9 +294,11 @@ class LogisticsFeedback(Action):
 
     ## 任务
     1. 阅读以下讨论历史：{context}，并基于其评估政策对运营的影响。
-    2. 找出至少3个运营挑战或机遇，并分别说明其对交付效率、成本结构或新业务开展的影响。
-    3. 为提高效率提出至少2条具体的政策修改建议或运营优化方案，并说明理由与预期效益。
-    4. 评估整体运营可行性并给出评分（1-10）。
+    2. **重要**：检查您之前的发言，**避免重复提出相同的运营问题**。
+    3. **只关注最新政策修订**中出现的**新的运营挑战**或**未解决的旧问题**。
+    4. 找出1-3个**新的**运营挑战或机遇。
+    5. 提出1-2条具体的政策修改建议或运营优化方案。
+    6. 评估整体运营可行性并给出评分（1-10），前几轮应更严格。
 
 
     ## 输出格式
@@ -540,9 +347,11 @@ class InfrastructureFeedback(Action):
 
     ## 任务
     1. 阅读以下讨论历史：{context}，并评估政策对物理基础设施的影响。
-    2. 列出至少2个基础设施挑战或需求，并分析对建设成本与实施时间表的影响。
-    3. 提出一条可行的开发或整合替代方案，并给出实施路线图。
-    4. 给出整体基础设施可行性评分（1-10）。
+    2. **重要**：检查您之前的发言，**避免重复提出相同的基础设施问题**。
+    3. **只关注最新政策修订**中出现的**新的基建挑战**或**未解决的旧问题**。
+    4. 列出1-3个**新的**基础设施挑战或需求。
+    5. 提出可行的开发或整合替代方案，并给出实施路线图。
+    6. 给出整体基础设施可行性评分（1-10），前几轮应更严格。
 
 
     ## 输出格式
@@ -577,13 +386,10 @@ class PolicyMaker(Role):
     def __init__(self, **data: Any):
         super().__init__(**data)
         self.policy_versions = []
-        if METAGPT_AVAILABLE:
-            self.set_actions([PolicyRevision])
-            self._watch([UserRequirement, EconomicFeedback, EnvironmentalFeedback, 
-                        LegalComplianceReview, ManufacturingFeedback, LogisticsFeedback, 
-                        InfrastructureFeedback])
-        else:
-            self.actions = [PolicyRevision]
+        self.set_actions([PolicyRevision])
+        self._watch([UserRequirement, EconomicFeedback, EnvironmentalFeedback, 
+                    LegalComplianceReview, ManufacturingFeedback, LogisticsFeedback, 
+                    InfrastructureFeedback])
 
     async def _observe(self) -> int:
         await super()._observe()
@@ -615,43 +421,28 @@ class PolicyMaker(Role):
         return len(self.rc.news)
 
     async def _act(self) -> Message:
-        if METAGPT_AVAILABLE:
-            logger.info(f"{self._setting}: 执行 {self.rc.todo}({self.rc.todo.name})")
-            todo = self.rc.todo
+        logger.info(f"{self._setting}: 执行 {self.rc.todo}({self.rc.todo.name})")
+        todo = self.rc.todo
 
-            memories = self.get_memories()
-            context = "\n".join(f"{msg.sent_from}: {msg.content}" for msg in memories)
+        memories = self.get_memories()
+        context = "\n".join(f"{msg.sent_from}: {msg.content}" for msg in memories)
 
-            rsp = await todo.run(context=context, name1=self.name1, opponent_name1="专家团队")
-            
-            # 显示政策制定者的具体回复内容
-            logger.info(f"\n=== {self.name} 的回复 ===")
-            logger.info(rsp)
-            logger.info("=" * 50)
-            
-            msg = Message(
-                content=rsp,
-                role=self.profile,
-                cause_by=type(todo),
-                sent_from=self.name,
-                send_to=None,
-            )
-            self.rc.memory.add(msg)
-            self.policy_versions.append(rsp)
-            return msg
-        else:
-            # 简化版本
-            if self.actions:
-                action = self.actions[0]()
-                prompt = f"作为{self.profile}，请分析政策：建立分层低空空域区域与动态无人机交通管理系统，支持商业无人机运营。请提供政策修订建议。"
-                response = await action._aask(prompt)
-                
-                logger.info(f"\n=== {self.name} 的回复 ===")
-                logger.info(response)
-                logger.info("=" * 50)
-                
-                return Message(content=response, role=self.profile, sent_from=self.name)
-            return Message()
+        rsp = await todo.run(context=context, name1=self.name1, opponent_name1="专家团队")
+        
+        # 统一格式输出 (压缩为单行)
+        rsp_oneline = rsp.replace('\n', '\\n').replace('\r', '')
+        logger.info(f"[ROUND_{CURRENT_ROUND}|{self.name}|{rsp_oneline}]")
+        
+        msg = Message(
+            content=rsp,
+            role=self.profile,
+            cause_by=type(todo),
+            sent_from=self.name,
+            send_to=None,
+        )
+        self.rc.memory.add(msg)
+        self.policy_versions.append(rsp)
+        return msg
 
 # 所有专家的基类
 class ExpertRole(Role):
@@ -659,6 +450,93 @@ class ExpertRole(Role):
         super().__init__(**data)
         # 观察政策修订和其他专家的反馈
         self._watch([PolicyRevision, UserRequirement])
+    
+    async def decide_to_speak(self) -> bool:
+        """判断是否需要在本轮发言（增强版：冷却机制+关联度检查）"""
+        memories = self.get_memories()
+        
+        # 如果是第一轮(没有历史记忆),肯定需要发言
+        if len(memories) == 0:
+            logger.info(f"{self.name}: 首轮讨论,需要发言")
+            return True
+        
+        # 冷却机制：统计最近连续发言次数
+        recent_speeches = 0
+        for msg in reversed(memories[-10:]):
+            if msg.sent_from == self.name and any(kw in msg.content for kw in ["问题", "建议", "修改", "评分"]):
+                recent_speeches += 1
+            elif "==================" in str(msg.content):
+                break
+        
+        # 如果连续2轮都发言了，本轮降低参与概率
+        if recent_speeches >= 2:
+            import random
+            if random.random() > 0.3:  # 70%概率跳过
+                logger.info(f"{self.name}: 已连续{recent_speeches}轮发言，本轮休息")
+                return False
+        
+        # 关联度检查：检查最新政策是否涉及本专家领域
+        expertise_keywords = {
+            "经济顾问": ["投资", "成本", "收益", "经济", "市场", "财税", "融资"],
+            "环境学家": ["环境", "噪音", "污染", "生态", "碳排放", "环保"],
+            "合规律师": ["法律", "法规", "合规", "标准", "监管", "许可"],
+            "制造商": ["制造", "生产", "技术", "设备", "认证", "产品"],
+            "物流公司": ["物流", "配送", "运营", "效率", "空域", "通道"],
+            "基建公司": ["基础设施", "建设", "系统", "平台", "监控"]
+        }
+        
+        latest_policy = ""
+        for msg in reversed(memories[-5:]):
+            if msg.sent_from == "政策部门":
+                latest_policy = msg.content[:500]
+                break
+        
+        my_keywords = expertise_keywords.get(self.name, [])
+        relevance = sum(1 for kw in my_keywords if kw in latest_policy)
+        
+        if relevance == 0:
+            logger.info(f"{self.name}: 最新政策与我的领域关联度低（0关键词），无需发言")
+            return False
+        
+        # 构建上下文
+        context = "\n".join(f"{msg.sent_from}: {msg.content[:200]}..." for msg in memories[-5:])
+        
+        prompt = f"""
+## 角色
+您是{self.profile}（{self.name}），正在参与低空经济政策讨论。
+
+## 任务
+根据以下最近讨论内容，**严格判断**您是否需要在本轮发言：
+
+{context}
+
+## 判断标准（严格）
+**只有满足以下条件之一时才发言**：
+1. 政策中出现了您专业领域的**新问题**或**重大风险**（之前未提出过的）
+2. 您上轮提出的**核心问题完全未被解决**
+3. 政策修订后出现了**违背您专业原则的严重问题**
+
+**以下情况无需发言**：
+- 政策已经部分考虑了您的建议
+- 您的核心关切已被其他专家提出
+- 当前讨论不涉及您的核心专业领域
+
+## 输出格式
+只回复"需要发言"或"无需发言"，不要其他内容。
+"""
+        
+        try:
+            if self.actions:
+                action = self.actions[0]
+                rsp = await action._aask(prompt)
+                decision = "需要发言" in rsp
+                logger.info(f"{self.name}: {'需要发言' if decision else '无需发言'}（关联度:{relevance}，连续发言:{recent_speeches}）")
+                return decision
+        except Exception as e:
+            logger.warning(f"{self.name} 判断失败: {e}，默认无需发言")
+            return False
+        
+        return False
     
     async def _observe(self) -> int:
         await super()._observe()
@@ -694,48 +572,30 @@ class EconomicAdvisor(ExpertRole):
 
     def __init__(self, **data: Any):
         super().__init__(**data)
-        if METAGPT_AVAILABLE:
-            self.set_actions([EconomicFeedback])
-        else:
-            self.actions = [EconomicFeedback]
+        self.set_actions([EconomicFeedback])
 
     async def _act(self) -> Message:
-        if METAGPT_AVAILABLE:
-            logger.info(f"{self._setting}: 执行 {self.rc.todo}({self.rc.todo.name})")
-            todo = self.rc.todo
+        logger.info(f"{self._setting}: 执行 {self.rc.todo}({self.rc.todo.name})")
+        todo = self.rc.todo
 
-            memories = self.get_memories()
-            context = "\n".join(f"{msg.sent_from}: {msg.content}" for msg in memories)
+        memories = self.get_memories()
+        context = "\n".join(f"{msg.sent_from}: {msg.content}" for msg in memories)
 
-            rsp = await todo.run(context=context, name2=self.name2)
+        rsp = await todo.run(context=context, name2=self.name2)
+        
+        # 统一格式输出 (压缩为单行)
+        rsp_oneline = rsp.replace('\n', '\\n').replace('\r', '')
+        logger.info(f"[ROUND_{CURRENT_ROUND}|{self.name}|{rsp_oneline}]")
 
-            # 显示经济顾问的具体回复内容
-            logger.info(f"\n=== {self.name} 的回复 ===")
-            logger.info(rsp)
-            logger.info("=" * 50)
-
-            msg = Message(
-                content=rsp,
-                role=self.profile,
-                cause_by=type(todo),
-                sent_from=self.name,
-                send_to={"政策部门"},
-            )
-            self.rc.memory.add(msg)
-            return msg
-        else:
-            # 简化版本
-            if self.actions:
-                action = self.actions[0]()
-                prompt = f"作为{self.profile}，请从经济角度分析政策：建立分层低空空域区域与动态无人机交通管理系统，支持商业无人机运营。请提供经济分析和建议。"
-                response = await action._aask(prompt)
-                
-                logger.info(f"\n=== {self.name} 的回复 ===")
-                logger.info(response)
-                logger.info("=" * 50)
-                
-                return Message(content=response, role=self.profile, sent_from=self.name)
-            return Message()
+        msg = Message(
+            content=rsp,
+            role=self.profile,
+            cause_by=type(todo),
+            sent_from=self.name,
+            send_to={"政策部门"},
+        )
+        self.rc.memory.add(msg)
+        return msg
 
 # 环境学家角色
 class Environmentalist(ExpertRole):
@@ -744,48 +604,30 @@ class Environmentalist(ExpertRole):
 
     def __init__(self, **data: Any):
         super().__init__(**data)
-        if METAGPT_AVAILABLE:
-            self.set_actions([EnvironmentalFeedback])
-        else:
-            self.actions = [EnvironmentalFeedback]
+        self.set_actions([EnvironmentalFeedback])
     
     async def _act(self) -> Message:
-        if METAGPT_AVAILABLE:
-            logger.info(f"{self._setting}: 执行 {self.rc.todo}({self.rc.todo.name})")
-            todo = self.rc.todo
-            
-            memories = self.get_memories()
-            context = "\n".join(f"{msg.sent_from}: {msg.content}" for msg in memories)
-            
-            rsp = await todo.run(context=context, name=self.name)
-            
-            # 显示环境学家的具体回复内容
-            logger.info(f"\n=== {self.name} 的回复 ===")
-            logger.info(rsp)
-            logger.info("=" * 50)
-            
-            msg = Message(
-                content=rsp,
-                role=self.profile,
-                cause_by=type(todo),
-                sent_from=self.name,
-                send_to={"政策部门"},
-            )
-            self.rc.memory.add(msg)
-            return msg
-        else:
-            # 简化版本
-            if self.actions:
-                action = self.actions[0]()
-                prompt = f"作为{self.profile}，请从环境角度分析政策：建立分层低空空域区域与动态无人机交通管理系统，支持商业无人机运营。请提供环境影响分析和建议。"
-                response = await action._aask(prompt)
-                
-                logger.info(f"\n=== {self.name} 的回复 ===")
-                logger.info(response)
-                logger.info("=" * 50)
-                
-                return Message(content=response, role=self.profile, sent_from=self.name)
-            return Message()
+        logger.info(f"{self._setting}: 执行 {self.rc.todo}({self.rc.todo.name})")
+        todo = self.rc.todo
+        
+        memories = self.get_memories()
+        context = "\n".join(f"{msg.sent_from}: {msg.content}" for msg in memories)
+        
+        rsp = await todo.run(context=context, name=self.name)
+        
+        # 统一格式输出 (压缩为单行)
+        rsp_oneline = rsp.replace('\n', '\\n').replace('\r', '')
+        logger.info(f"[ROUND_{CURRENT_ROUND}|{self.name}|{rsp_oneline}]")
+        
+        msg = Message(
+            content=rsp,
+            role=self.profile,
+            cause_by=type(todo),
+            sent_from=self.name,
+            send_to={"政策部门"},
+        )
+        self.rc.memory.add(msg)
+        return msg
 
 # 合规律师角色
 class ComplianceLawyer(ExpertRole):
@@ -794,48 +636,30 @@ class ComplianceLawyer(ExpertRole):
 
     def __init__(self, **data: Any):
         super().__init__(**data)
-        if METAGPT_AVAILABLE:
-            self.set_actions([LegalComplianceReview])
-        else:
-            self.actions = [LegalComplianceReview]
+        self.set_actions([LegalComplianceReview])
 
     async def _act(self) -> Message:
-        if METAGPT_AVAILABLE:
-            logger.info(f"{self._setting}: 执行 {self.rc.todo}({self.rc.todo.name})")
-            todo = self.rc.todo
-            
-            memories = self.get_memories()
-            context = "\n".join(f"{msg.sent_from}: {msg.content}" for msg in memories)
-            
-            rsp = await todo.run(context=context, name=self.name)
-            
-            # 显示合规律师的具体回复内容
-            logger.info(f"\n=== {self.name} 的回复 ===")
-            logger.info(rsp)
-            logger.info("=" * 50)
-            
-            msg = Message(
-                content=rsp,
-                role=self.profile,
-                cause_by=type(todo),
-                sent_from=self.name,
-                send_to={"政策部门"},
-            )
-            self.rc.memory.add(msg)
-            return msg
-        else:
-            # 简化版本
-            if self.actions:
-                action = self.actions[0]()
-                prompt = f"作为{self.profile}，请从法律合规角度分析政策：建立分层低空空域区域与动态无人机交通管理系统，支持商业无人机运营。请提供法律合规分析和建议。"
-                response = await action._aask(prompt)
-                
-                logger.info(f"\n=== {self.name} 的回复 ===")
-                logger.info(response)
-                logger.info("=" * 50)
-                
-                return Message(content=response, role=self.profile, sent_from=self.name)
-            return Message()
+        logger.info(f"{self._setting}: 执行 {self.rc.todo}({self.rc.todo.name})")
+        todo = self.rc.todo
+        
+        memories = self.get_memories()
+        context = "\n".join(f"{msg.sent_from}: {msg.content}" for msg in memories)
+        
+        rsp = await todo.run(context=context, name=self.name)
+        
+        # 统一格式输出 (压缩为单行)
+        rsp_oneline = rsp.replace('\n', '\\n').replace('\r', '')
+        logger.info(f"[ROUND_{CURRENT_ROUND}|{self.name}|{rsp_oneline}]")
+        
+        msg = Message(
+            content=rsp,
+            role=self.profile,
+            cause_by=type(todo),
+            sent_from=self.name,
+            send_to={"政策部门"},
+        )
+        self.rc.memory.add(msg)
+        return msg
 
 # 制造商角色
 class Manufacturer(ExpertRole):
@@ -844,49 +668,31 @@ class Manufacturer(ExpertRole):
 
     def __init__(self, **data: Any):
         super().__init__(**data)
-        if METAGPT_AVAILABLE:
-            self.set_actions([ManufacturingFeedback])
-        else:
-            self.actions = [ManufacturingFeedback]
+        self.set_actions([ManufacturingFeedback])
 
 
     async def _act(self) -> Message:
-        if METAGPT_AVAILABLE:
-            logger.info(f"{self._setting}: 执行 {self.rc.todo}({self.rc.todo.name})")
-            todo = self.rc.todo
-            
-            memories = self.get_memories()
-            context = "\n".join(f"{msg.sent_from}: {msg.content}" for msg in memories)
-            
-            rsp = await todo.run(context=context, name=self.name)
-            
-            # 显示制造商的具体回复内容
-            logger.info(f"\n=== {self.name} 的回复 ===")
-            logger.info(rsp)
-            logger.info("=" * 50)
-            
-            msg = Message(
-                content=rsp,
-                role=self.profile,
-                cause_by=type(todo),
-                sent_from=self.name,
-                send_to={"政策部门"},
-            )
-            self.rc.memory.add(msg)
-            return msg
-        else:
-            # 简化版本
-            if self.actions:
-                action = self.actions[0]()
-                prompt = f"作为{self.profile}，请从制造角度分析政策：建立分层低空空域区域与动态无人机交通管理系统，支持商业无人机运营。请提供制造可行性分析和建议。"
-                response = await action._aask(prompt)
-                
-                logger.info(f"\n=== {self.name} 的回复 ===")
-                logger.info(response)
-                logger.info("=" * 50)
-                
-                return Message(content=response, role=self.profile, sent_from=self.name)
-            return Message()
+        logger.info(f"{self._setting}: 执行 {self.rc.todo}({self.rc.todo.name})")
+        todo = self.rc.todo
+        
+        memories = self.get_memories()
+        context = "\n".join(f"{msg.sent_from}: {msg.content}" for msg in memories)
+        
+        rsp = await todo.run(context=context, name=self.name)
+        
+        # 统一格式输出 (压缩为单行)
+        rsp_oneline = rsp.replace('\n', '\\n').replace('\r', '')
+        logger.info(f"[ROUND_{CURRENT_ROUND}|{self.name}|{rsp_oneline}]")
+        
+        msg = Message(
+            content=rsp,
+            role=self.profile,
+            cause_by=type(todo),
+            sent_from=self.name,
+            send_to={"政策部门"},
+        )
+        self.rc.memory.add(msg)
+        return msg
 
 # 物流公司角色
 class LogisticsCompany(ExpertRole):
@@ -895,48 +701,30 @@ class LogisticsCompany(ExpertRole):
 
     def __init__(self, **data: Any):
         super().__init__(**data)
-        if METAGPT_AVAILABLE:
-            self.set_actions([LogisticsFeedback])
-        else:
-            self.actions = [LogisticsFeedback]
+        self.set_actions([LogisticsFeedback])
     
     async def _act(self) -> Message:
-        if METAGPT_AVAILABLE:
-            logger.info(f"{self._setting}: 执行 {self.rc.todo}({self.rc.todo.name})")
-            todo = self.rc.todo
-            
-            memories = self.get_memories()
-            context = "\n".join(f"{msg.sent_from}: {msg.content}" for msg in memories)
-            
-            rsp = await todo.run(context=context, name=self.name)
-            
-            # 显示物流公司的具体回复内容
-            logger.info(f"\n=== {self.name} 的回复 ===")
-            logger.info(rsp)
-            logger.info("=" * 50)
-            
-            msg = Message(
-                content=rsp,
-                role=self.profile,
-                cause_by=type(todo),
-                sent_from=self.name,
-                send_to={"政策部门"},
-            )
-            self.rc.memory.add(msg)
-            return msg
-        else:
-            # 简化版本
-            if self.actions:
-                action = self.actions[0]()
-                prompt = f"作为{self.profile}，请从物流运营角度分析政策：建立分层低空空域区域与动态无人机交通管理系统，支持商业无人机运营。请提供物流运营分析和建议。"
-                response = await action._aask(prompt)
-                
-                logger.info(f"\n=== {self.name} 的回复 ===")
-                logger.info(response)
-                logger.info("=" * 50)
-                
-                return Message(content=response, role=self.profile, sent_from=self.name)
-            return Message()
+        logger.info(f"{self._setting}: 执行 {self.rc.todo}({self.rc.todo.name})")
+        todo = self.rc.todo
+        
+        memories = self.get_memories()
+        context = "\n".join(f"{msg.sent_from}: {msg.content}" for msg in memories)
+        
+        rsp = await todo.run(context=context, name=self.name)
+        
+        # 统一格式输出 (压缩为单行)
+        rsp_oneline = rsp.replace('\n', '\\n').replace('\r', '')
+        logger.info(f"[ROUND_{CURRENT_ROUND}|{self.name}|{rsp_oneline}]")
+        
+        msg = Message(
+            content=rsp,
+            role=self.profile,
+            cause_by=type(todo),
+            sent_from=self.name,
+            send_to={"政策部门"},
+        )
+        self.rc.memory.add(msg)
+        return msg
 
 # 基建公司角色
 class InfrastructureCompany(ExpertRole):
@@ -945,48 +733,30 @@ class InfrastructureCompany(ExpertRole):
 
     def __init__(self, **data: Any):
         super().__init__(**data)
-        if METAGPT_AVAILABLE:
-            self.set_actions([InfrastructureFeedback])
-        else:
-            self.actions = [InfrastructureFeedback]
+        self.set_actions([InfrastructureFeedback])
     
     async def _act(self) -> Message:
-        if METAGPT_AVAILABLE:
-            logger.info(f"{self._setting}: 执行 {self.rc.todo}({self.rc.todo.name})")
-            todo = self.rc.todo
-            
-            memories = self.get_memories()
-            context = "\n".join(f"{msg.sent_from}: {msg.content}" for msg in memories)
-            
-            rsp = await todo.run(context=context, name=self.name)
-            
-            # 显示基建公司的具体回复内容
-            logger.info(f"\n=== {self.name} 的回复 ===")
-            logger.info(rsp)
-            logger.info("=" * 50)
-            
-            msg = Message(
-                content=rsp,
-                role=self.profile,
-                cause_by=type(todo),
-                sent_from=self.name,
-                send_to={"政策部门"},
-            )
-            self.rc.memory.add(msg)
-            return msg
-        else:
-            # 简化版本
-            if self.actions:
-                action = self.actions[0]()
-                prompt = f"作为{self.profile}，请从基础设施角度分析政策：建立分层低空空域区域与动态无人机交通管理系统，支持商业无人机运营。请提供基础设施分析和建议。"
-                response = await action._aask(prompt)
-                
-                logger.info(f"\n=== {self.name} 的回复 ===")
-                logger.info(response)
-                logger.info("=" * 50)
-                
-                return Message(content=response, role=self.profile, sent_from=self.name)
-            return Message()
+        logger.info(f"{self._setting}: 执行 {self.rc.todo}({self.rc.todo.name})")
+        todo = self.rc.todo
+        
+        memories = self.get_memories()
+        context = "\n".join(f"{msg.sent_from}: {msg.content}" for msg in memories)
+        
+        rsp = await todo.run(context=context, name=self.name)
+        
+        # 统一格式输出 (压缩为单行)
+        rsp_oneline = rsp.replace('\n', '\\n').replace('\r', '')
+        logger.info(f"[ROUND_{CURRENT_ROUND}|{self.name}|{rsp_oneline}]")
+        
+        msg = Message(
+            content=rsp,
+            role=self.profile,
+            cause_by=type(todo),
+            sent_from=self.name,
+            send_to={"政策部门"},
+        )
+        self.rc.memory.add(msg)
+        return msg
 
 # 检查共识
 class ConsensusChecker:
@@ -997,7 +767,7 @@ class ConsensusChecker:
     # 最小共识分数
     min_score = 85
     # 最小讨论轮数
-    min_round = 3
+    min_round = 5  # 要求至少5轮
     # 最小实质变更数
     min_change = 2
     # 政策最小差异要求
@@ -1158,8 +928,13 @@ class ConsensusChecker:
                 analysis_result["meets_change_requirement"])
 
 # 政策推演流程
+CURRENT_ROUND = 0  # 全局轮次变量
+
 async def policy_development(idea: str, investment: float = 3.0, max_round: int = 10):
     # 运行政策推演流程
+    global CURRENT_ROUND
+    CURRENT_ROUND = 0
+    
     # 初始化所有角色
     policy_maker = PolicyMaker(
         name="政策部门",
@@ -1214,22 +989,45 @@ async def policy_development(idea: str, investment: float = 3.0, max_round: int 
     consensus = False
     round_results = []
     final_policy = ""
+    
+    # 所有专家列表
+    all_experts = [
+        economic_advisor,
+        environmentalist,
+        compliance_lawyer,
+        manufacturer,
+        logistics_company,
+        infrastructure_company
+    ]
 
-    # 多轮讨论
+    # 多轮讨论：专家自主判断是否发言
     while rounds < max_round and not consensus:
         rounds += 1
-        team.run_project(idea, send_to="经济顾问")
-        await team.run(n_round=2)  
-        team.run_project(idea, send_to="环境学家")
-        await team.run(n_round=2)
-        team.run_project(idea, send_to="合规律师")
-        await team.run(n_round=2) 
-        team.run_project(idea, send_to="制造商")
-        await team.run(n_round=2) 
-        team.run_project(idea, send_to="物流公司")
-        await team.run(n_round=2) 
-        team.run_project(idea, send_to="基建公司")
-        await team.run(n_round=2) 
+        CURRENT_ROUND = rounds  # 更新全局轮次
+        logger.info(f"\n{'='*20} 第 {rounds} 轮讨论 {'='*20}")
+        
+        # 步骤1：广播当前政策给所有专家
+        team.run_project(idea, send_to=None)  # None表示广播给所有人
+        
+        # 步骤2：每个专家自主判断是否需要发言
+        speaking_experts = []
+        for expert in all_experts:
+            should_speak = await expert.decide_to_speak()
+            if should_speak:
+                speaking_experts.append(expert)
+        
+        logger.info(f"本轮发言专家: {[e.name for e in speaking_experts]}")
+        
+        # 步骤3：所有专家依次发言，然后政策部门统一修订
+        if speaking_experts:
+            # 让所有专家发言
+            for expert in speaking_experts:
+                team.run_project(idea, send_to=expert.name)
+            
+            # 运行一轮：所有专家发言 + 政策部门修订
+            await team.run(n_round=len(speaking_experts) + 1)
+        else:
+            logger.info("本轮无专家发言，政策保持不变") 
 
         # 收集所有消息
         all_messages = []
